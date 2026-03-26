@@ -1,0 +1,10 @@
+target/
+dist/
+build/
+*.egg-info/
+.venv/
+.pytest_cache/
+htmlcov/
+site/
+__pycache__/
+*.pyc

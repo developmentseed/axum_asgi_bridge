@@ -1,0 +1,31 @@
+[package]
+name = "axum_asgi_bridge"
+version = "0.1.0"
+edition = "2024"
+description = "Generic Axum to ASGI bridge with PyO3 bindings"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/stac-utils/axum_asgi_bridge"
+
+[lib]
+name = "axum_asgi_bridge"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+axum = "0.8"
+http-body-util = "0.1"
+pyo3 = { version = "0.28", features = ["extension-module"] }
+pyo3-async-runtimes = { version = "0.28", features = ["tokio", "tokio-runtime"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tower = "0.5"
+
+[dev-dependencies]
+http-body-util = "0.1"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+strip = "symbols"

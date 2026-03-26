@@ -1,0 +1,42 @@
+[build-system]
+requires = ["maturin>=1.8,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "axum_asgi_bridge"
+version = "0.1.0"
+description = "Embed Axum services into ASGI hosts such as FastAPI and Starlette"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT OR Apache-2.0" }
+authors = [
+  { name = "stac-utils" }
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "anyio>=4.6",
+  "fastapi>=0.115",
+  "httpx>=0.28",
+  "mkdocs>=1.6",
+  "mkdocs-material>=9.5",
+  "ruff>=0.7",
+  "mypy>=1.13",
+  "maturin>=1.8,<2.0"
+]
+
+[tool.maturin]
+python-source = "python"
+module-name = "axum_asgi_bridge._native"
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
