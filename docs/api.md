@@ -6,7 +6,13 @@
 
 ```python
 class AxumAsgiApp:
-    def __init__(self, native_app: Any) -> None: ...
+    def __init__(
+        self,
+        native_app: Any,
+        *,
+        on_request_done: Callable[..., None] | None = None,
+        stream_chunk_size: int = 0,
+    ) -> None: ...
 ```
 
 ASGI application wrapper around the native Rust bridge. Implements the ASGI
@@ -35,6 +41,30 @@ was configured. Called once at startup, not on every request.
 
 Returns the list of route patterns that the Rust bridge handles (e.g., `["/", "/echo"]`).
 Used by `missing_delegated_routes` to verify OpenAPI completeness.
+
+#### ASGI Scope Support
+
+`AxumAsgiApp` handles:
+
+- `http`
+- `lifespan`
+- `websocket` (only when native `dispatch_websocket` exists)
+
+### `PrometheusMetricsHook`
+
+```python
+class PrometheusMetricsHook:
+    def __init__(self, prefix: str = "axum_asgi_bridge", buckets: tuple[float, ...] | None = None) -> None: ...
+```
+
+Request metrics callback helper for `on_request_done`.
+
+---
+
+### `install_lifespan(app, delegated_app)`
+
+Installs a FastAPI lifespan context wrapper that forwards startup/shutdown to
+delegated bridge hooks when available.
 
 ---
 
@@ -201,6 +231,26 @@ Attach an OpenAPI schema (builder pattern).
 
 Declare the route patterns this bridge handles (builder pattern).
 
+#### `with_compression(self) -> Self` *(feature: `middleware`)*
+
+Apply response compression middleware.
+
+#### `with_cors_permissive(self) -> Self` *(feature: `middleware`)*
+
+Apply permissive CORS middleware.
+
+#### `with_timeout(self, duration: Duration) -> Self` *(feature: `middleware`)*
+
+Apply per-request timeout middleware.
+
+#### `with_trace_http(self) -> Self` *(feature: `middleware`)*
+
+Apply Tower HTTP tracing layer.
+
+#### `with_utoipa_schema<A: utoipa::OpenApi>(self) -> Self` *(feature: `utoipa`)*
+
+Populate OpenAPI schema from a utoipa document type.
+
 #### `async dispatch(&self, method, path, query_string, headers, body) -> Result<DispatchResult>`
 
 Dispatch a request from structured arguments. This is the **fastest path** — no
@@ -253,6 +303,23 @@ pub struct AsgiHttpScope {
 Serializable representation of an ASGI HTTP scope. Used internally by
 `dispatch_raw` for JSON deserialization.
 
+### `RouteRegistry`
+
+```rust
+pub struct RouteRegistry { /* ... */ }
+```
+
+Builder wrapper that tracks registered routes and converts directly to
+`AxumAsgiBridge` with route patterns populated.
+
+Key methods:
+
+- `RouteRegistry::new()`
+- `route(path, method_router)`
+- `nest(prefix, nested_registry)`
+- `merge(other_registry)`
+- `into_bridge()`
+
 ### `BridgeError`
 
 ```rust
@@ -269,3 +336,15 @@ pub enum BridgeError {
 ```
 
 Error type covering all failure modes during dispatch.
+
+## Python Exceptions
+
+The native module exports typed exceptions:
+
+- `BridgeError`
+- `BridgeDispatchError`
+- `BridgeConfigError`
+- `InvalidRequestError`
+- `ResponseBodyError`
+
+These are re-exported by the package root for direct import.

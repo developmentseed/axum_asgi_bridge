@@ -10,7 +10,9 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use serde_json::{Value as JsonValue, json};
 
-pub use bridge::{AsgiHttpScope, AxumAsgiBridge, DispatchResult, RouteRegistry};
+pub use bridge::{
+    AsgiHttpScope, AxumAsgiBridge, DispatchResult, DispatchStreamingResult, RouteRegistry,
+};
 pub use error::{BridgeError, Result};
 
 create_exception!(_native, BridgeErrorPy, PyException);
@@ -41,6 +43,37 @@ pub struct PyAxumAsgiBridge {
 
 #[pymethods]
 impl PyAxumAsgiBridge {
+    #[cfg(feature = "middleware")]
+    fn with_compression(&self) -> Self {
+        Self {
+            inner: self.inner.clone().with_compression(),
+        }
+    }
+
+    #[cfg(feature = "middleware")]
+    fn with_cors_permissive(&self) -> Self {
+        Self {
+            inner: self.inner.clone().with_cors_permissive(),
+        }
+    }
+
+    #[cfg(feature = "middleware")]
+    fn with_timeout_millis(&self, timeout_millis: u64) -> Self {
+        Self {
+            inner: self
+                .inner
+                .clone()
+                .with_timeout(std::time::Duration::from_millis(timeout_millis)),
+        }
+    }
+
+    #[cfg(feature = "middleware")]
+    fn with_trace_http(&self) -> Self {
+        Self {
+            inner: self.inner.clone().with_trace_http(),
+        }
+    }
+
     /// Dispatch via structured arguments — no JSON serialization overhead.
     fn dispatch<'py>(
         &self,
@@ -80,6 +113,26 @@ impl PyAxumAsgiBridge {
         })
     }
 
+    /// Dispatch and return natural response body chunks from the native body stream.
+    fn dispatch_streaming<'py>(
+        &self,
+        py: Python<'py>,
+        method: String,
+        path: String,
+        query_string: String,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let result = inner
+                .dispatch_streaming(method, path, query_string, headers, body)
+                .await
+                .map_err(to_py_err)?;
+            Ok((result.status, result.headers, result.chunks))
+        })
+    }
+
     fn openapi_schema_json(&self, py: Python<'_>) -> PyResult<Option<String>> {
         // This function only touches Rust-owned data, so running it without the GIL is safe.
         py.detach(|| self.inner.openapi_schema_json())
@@ -98,6 +151,20 @@ impl PyAxumAsgiBridge {
 
     fn on_shutdown<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(()) })
+    }
+
+    fn dispatch_websocket<'py>(
+        &self,
+        py: Python<'py>,
+        _scope: Bound<'py, PyAny>,
+        _receive: Bound<'py, PyAny>,
+        _send: Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        pyo3_async_runtimes::tokio::future_into_py::<_, ()>(py, async move {
+            Err(BridgeDispatchErrorPy::new_err(
+                "websocket bridging is not yet implemented",
+            ))
+        })
     }
 }
 

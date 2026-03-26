@@ -20,6 +20,20 @@ class _MockNative:
         self.stopped = True
 
 
+class _MockStreamingNative(_MockNative):
+    async def dispatch_streaming(self, method, path, query_string, headers, body):
+        return 200, [("content-type", "text/plain")], [b"ab", b"cd", b"ef"]
+
+
+class _MockWebSocketNative(_MockNative):
+    def __init__(self) -> None:
+        super().__init__()
+        self.websocket_called = False
+
+    async def dispatch_websocket(self, scope, receive, send):
+        self.websocket_called = True
+
+
 async def test_asgi_lifespan_events_are_handled() -> None:
     native = _MockNative()
     app = AxumAsgiApp(native)
@@ -102,6 +116,44 @@ async def test_request_done_hook_receives_metrics_payload() -> None:
     assert captured["status"] == 200
     assert captured["response_bytes"] == 8
     assert captured["duration_s"] >= 0
+
+
+async def test_native_streaming_path_preserves_chunk_boundaries() -> None:
+    native = _MockStreamingNative()
+    app = AxumAsgiApp(native)
+    sent = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(event):
+        sent.append(event)
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "query_string": b"",
+        "headers": [],
+    }
+    await app(scope, receive, send)
+
+    body_events = [event for event in sent if event["type"] == "http.response.body"]
+    assert [event["body"] for event in body_events] == [b"ab", b"cd", b"ef"]
+
+
+async def test_websocket_calls_native_dispatch_when_available() -> None:
+    native = _MockWebSocketNative()
+    app = AxumAsgiApp(native)
+
+    async def receive():
+        return {"type": "websocket.connect"}
+
+    async def send(_event):
+        return None
+
+    await app({"type": "websocket", "path": "/ws"}, receive, send)
+    assert native.websocket_called is True
 
 
 async def test_install_lifespan_invokes_native_hooks() -> None:

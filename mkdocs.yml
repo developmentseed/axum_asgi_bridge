@@ -41,5 +41,7 @@ nav:
   - Quickstart: quickstart.md
   - API Reference: api.md
   - Performance: performance.md
+  - Middleware: middleware.md
+  - Observability: observability.md
   - Roadmap: roadmap.md
   - CI and Release: ci_release.md

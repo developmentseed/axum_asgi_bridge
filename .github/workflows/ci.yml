@@ -17,6 +17,8 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Rust tests
         run: cargo test --all-targets
+      - name: Rust tests with utoipa feature
+        run: cargo test --all-targets --features utoipa
 
   python:
     runs-on: ubuntu-latest

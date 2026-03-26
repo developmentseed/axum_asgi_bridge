@@ -3,6 +3,9 @@ use axum::{Json, Router};
 use axum_asgi_bridge::{AxumAsgiBridge, RouteRegistry};
 use serde_json::json;
 
+#[cfg(feature = "utoipa")]
+use utoipa::OpenApi;
+
 #[tokio::test]
 async fn dispatch_raw_returns_bytes() {
     async fn handler() -> Json<serde_json::Value> {
@@ -72,4 +75,52 @@ async fn route_registry_tracks_patterns() {
     let routes: Vec<String> = serde_json::from_str(&routes_json).expect("valid json");
     assert!(routes.contains(&"/".to_string()));
     assert!(routes.contains(&"/items".to_string()));
+}
+
+#[cfg(feature = "middleware")]
+#[tokio::test]
+async fn middleware_builders_dispatch() {
+    async fn handler() -> Json<serde_json::Value> {
+        Json(json!({"ok": true}))
+    }
+
+    let router = Router::new().route("/", get(handler));
+    let bridge = AxumAsgiBridge::new(router)
+        .with_compression()
+        .with_cors_permissive()
+        .with_timeout(std::time::Duration::from_secs(1))
+        .with_trace_http()
+        .with_route_patterns(["/".to_string()]);
+
+    let scope = json!({
+        "method": "GET",
+        "path": "/",
+        "query_string": "",
+        "headers": []
+    });
+
+    let result = bridge
+        .dispatch_raw(&scope.to_string(), Vec::new())
+        .await
+        .expect("dispatch succeeds");
+    assert_eq!(result.status, 200);
+}
+
+#[cfg(feature = "utoipa")]
+#[derive(OpenApi)]
+#[openapi()]
+struct EmptyDoc;
+
+#[cfg(feature = "utoipa")]
+#[tokio::test]
+async fn utoipa_schema_builder_populates_schema() {
+    let bridge = RouteRegistry::new()
+        .route("/", get(|| async { "ok" }))
+        .into_bridge()
+        .with_utoipa_schema::<EmptyDoc>();
+
+    let schema = bridge
+        .openapi_schema_json()
+        .expect("schema serialization should succeed");
+    assert!(schema.is_some());
 }

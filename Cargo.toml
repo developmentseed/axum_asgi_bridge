@@ -10,8 +10,15 @@ repository = "https://github.com/stac-utils/axum_asgi_bridge"
 name = "axum_asgi_bridge"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+middleware = ["dep:tower-http"]
+utoipa = ["dep:utoipa", "dep:utoipa-axum"]
+observability = ["dep:tracing", "dep:tracing-subscriber", "middleware"]
+
 [dependencies]
 axum = "0.8"
+futures-util = "0.3"
 http-body-util = "0.1"
 pyo3 = { version = "0.28", features = ["extension-module"] }
 pyo3-async-runtimes = { version = "0.28", features = ["tokio", "tokio-runtime"] }
@@ -20,6 +27,11 @@ serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tower = "0.5"
+tower-http = { version = "0.6", optional = true, features = ["full"] }
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", optional = true, features = ["env-filter", "fmt"] }
+utoipa = { version = "5", optional = true }
+utoipa-axum = { version = "0.2", optional = true }
 
 [dev-dependencies]
 http-body-util = "0.1"

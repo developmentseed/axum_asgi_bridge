@@ -4,15 +4,15 @@ Last updated: 2026-03-26
 
 ## Status Summary
 
-1. Streaming response support: Implemented (ASGI chunked send path)
-2. WebSocket support: Not started
+1. Streaming response support: Implemented (native chunk path + ASGI chunk sends)
+2. WebSocket support: Partially implemented (dispatch hook path and tests; full Rust websocket upgrade bridge still missing)
 3. ASGI lifespan events: Implemented
-4. Tower middleware integration: Not started
+4. Tower middleware integration: Implemented (feature-gated)
 5. Automatic route pattern extraction: Implemented
-6. OpenAPI auto-generation (utoipa): Not started
-7. Typed Python exception classes: Implemented (pending full test run)
-8. Metrics and tracing: Partially implemented (Python hooks + Prometheus; Rust tracing pending)
-9. GIL release for synchronous methods: Implemented (pending full test run)
+6. OpenAPI auto-generation (utoipa): Implemented (feature-gated helper + tests + CI)
+7. Typed Python exception classes: Implemented and validated
+8. Metrics and tracing: Implemented (Python hooks + Prometheus + Rust tracing events)
+9. GIL release for synchronous methods: Implemented and validated
 
 ## Execution Log
 
@@ -29,11 +29,19 @@ Last updated: 2026-03-26
 - 2026-03-26: Added `install_lifespan` integration helper and lifecycle passthrough behavior in middleware.
 - 2026-03-26: Added tests for lifespan events, chunked body sends, request metrics callback payload, and FastAPI lifespan installation.
 - 2026-03-26: Validation passed after this pass (`cargo test --all-targets`, `uv run pytest -q` with 11 tests).
+- 2026-03-26: Started Rust-side pass for items 4/6/8: added feature flags and optional deps for `tower-http`, `utoipa`, and `tracing`.
+- 2026-03-26: Added middleware and observability docs pages plus a utoipa integration example scaffold.
+- 2026-03-26: Blocker found during `--all-features` tests: `EnteredSpan` is not `Send` across async await in PyO3 futures. Resolved by switching to start/end `tracing::info!` events instead of holding entered span guards.
+- 2026-03-26: Blocker found in middleware timeout builder: `TimeoutLayer::with_status_code` argument order differs in `tower-http 0.6`; corrected to `(status_code, duration)`.
+- 2026-03-26: Item 1 follow-up: added native `dispatch_streaming` / `dispatch_raw_streaming` paths to preserve body chunk boundaries from Rust to Python.
+- 2026-03-26: Item 2 pass: added websocket dispatch call path in Python ASGI adapter and native placeholder method; full Rust websocket upgrade bridge remains outstanding.
+- 2026-03-26: Fixed websocket placeholder compile issue by explicitly setting `future_into_py::<_, ()>` return type in PyO3 binding.
+- 2026-03-26: Final validation checkpoint: `cargo test --all-targets`, `cargo test --all-targets --all-features`, `uv run pytest -q` (13 passed), and `uv run mkdocs build --strict` all pass.
 
 ## Outstanding Gaps
 
-- Item 1 currently streams from buffered Rust response bytes in Python chunks; true Rust body-frame streaming is still pending.
-- Item 8 still needs Rust-side tracing spans / layers to be complete.
+- Item 2 full websocket protocol bridging is still outstanding (upgrade negotiation and bidirectional frame relay across ASGI channels).
+- Item 1 currently returns chunk frames as a vector from Rust before ASGI emits them; true backpressure-driven incremental handoff is a future enhancement.
 
 ## Repeated Mistakes Guardrail
 

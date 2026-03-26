@@ -1,15 +1,29 @@
 use std::collections::BTreeSet;
 use std::str::FromStr;
+#[cfg(feature = "middleware")]
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::Body;
 use axum::routing::MethodRouter;
 use axum::http::{HeaderName, HeaderValue, Method, Request, Uri};
+#[cfg(feature = "middleware")]
+use axum::http::StatusCode;
 use axum::response::Response;
+use futures_util::StreamExt;
 use http_body_util::BodyExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use tower::ServiceExt;
+
+#[cfg(feature = "middleware")]
+use tower_http::compression::CompressionLayer;
+#[cfg(feature = "middleware")]
+use tower_http::cors::CorsLayer;
+#[cfg(feature = "middleware")]
+use tower_http::timeout::TimeoutLayer;
+#[cfg(feature = "middleware")]
+use tower_http::trace::TraceLayer;
 
 use crate::error::{BridgeError, Result};
 
@@ -26,6 +40,13 @@ pub struct DispatchResult {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DispatchStreamingResult {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub chunks: Vec<Vec<u8>>,
 }
 
 #[derive(Clone, Debug)]
@@ -103,6 +124,42 @@ impl AxumAsgiBridge {
         self
     }
 
+    #[cfg(feature = "middleware")]
+    pub fn with_compression(mut self) -> Self {
+        self.router = self.router.layer(CompressionLayer::new());
+        self
+    }
+
+    #[cfg(feature = "middleware")]
+    pub fn with_cors_permissive(mut self) -> Self {
+        self.router = self.router.layer(CorsLayer::permissive());
+        self
+    }
+
+    #[cfg(feature = "middleware")]
+    pub fn with_timeout(mut self, duration: Duration) -> Self {
+        self.router = self.router.layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            duration,
+        ));
+        self
+    }
+
+    #[cfg(feature = "middleware")]
+    pub fn with_trace_http(mut self) -> Self {
+        self.router = self.router.layer(TraceLayer::new_for_http());
+        self
+    }
+
+    #[cfg(feature = "utoipa")]
+    pub fn with_utoipa_schema<A>(self) -> Self
+    where
+        A: utoipa::OpenApi,
+    {
+        let schema = serde_json::to_value(A::openapi()).unwrap_or(JsonValue::Null);
+        self.with_openapi_schema(schema)
+    }
+
     pub fn openapi_schema_json(&self) -> Result<Option<String>> {
         self.openapi_schema
             .as_ref()
@@ -145,6 +202,28 @@ impl AxumAsgiBridge {
         self.dispatch_scope(scope, body).await
     }
 
+    /// Dispatch a request and preserve native body chunking.
+    pub async fn dispatch_streaming(
+        &self,
+        method: String,
+        path: String,
+        query_string: String,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+    ) -> Result<DispatchStreamingResult> {
+        let scope = AsgiHttpScope {
+            method,
+            path,
+            query_string: if query_string.is_empty() {
+                None
+            } else {
+                Some(query_string)
+            },
+            headers,
+        };
+        self.dispatch_scope_streaming(scope, body).await
+    }
+
     /// Dispatch a request from a JSON-encoded ASGI scope string.
     pub async fn dispatch_raw(&self, scope_json: &str, body: Vec<u8>) -> Result<DispatchResult> {
         let scope: AsgiHttpScope =
@@ -155,7 +234,27 @@ impl AxumAsgiBridge {
         self.dispatch_scope(scope, body).await
     }
 
+    pub async fn dispatch_raw_streaming(
+        &self,
+        scope_json: &str,
+        body: Vec<u8>,
+    ) -> Result<DispatchStreamingResult> {
+        let scope: AsgiHttpScope =
+            serde_json::from_str(scope_json).map_err(|error| BridgeError::JsonDecode {
+                context: "dispatch_raw_streaming.scope",
+                message: error.to_string(),
+            })?;
+        self.dispatch_scope_streaming(scope, body).await
+    }
+
     async fn dispatch_scope(&self, scope: AsgiHttpScope, body: Vec<u8>) -> Result<DispatchResult> {
+        #[cfg(feature = "observability")]
+        tracing::info!(
+            http.method = %scope.method,
+            http.path = %scope.path,
+            "dispatch start"
+        );
+
         let request = scope_to_http_request(scope, body)?;
         let response: Response = self
             .router
@@ -183,10 +282,52 @@ impl AxumAsgiBridge {
             .map_err(|error| BridgeError::ResponseBody(error.to_string()))?;
         let body_bytes: Vec<u8> = collected.to_bytes().into();
 
+        #[cfg(feature = "observability")]
+        tracing::info!(http.status = status, response.bytes = body_bytes.len(), "dispatch complete");
+
         Ok(DispatchResult {
             status,
             headers,
             body: body_bytes,
+        })
+    }
+
+    async fn dispatch_scope_streaming(
+        &self,
+        scope: AsgiHttpScope,
+        body: Vec<u8>,
+    ) -> Result<DispatchStreamingResult> {
+        let request = scope_to_http_request(scope, body)?;
+        let response: Response = self
+            .router
+            .clone()
+            .oneshot(request)
+            .await
+            .map_err(|error| BridgeError::Service(error.to_string()))?;
+
+        let status = response.status().as_u16();
+        let headers: Vec<(String, String)> = response
+            .headers()
+            .iter()
+            .filter_map(|(name, value)| {
+                value
+                    .to_str()
+                    .ok()
+                    .map(|v| (name.as_str().to_owned(), v.to_owned()))
+            })
+            .collect();
+
+        let mut stream = response.into_body().into_data_stream();
+        let mut chunks: Vec<Vec<u8>> = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|error| BridgeError::ResponseBody(error.to_string()))?;
+            chunks.push(chunk.to_vec());
+        }
+
+        Ok(DispatchStreamingResult {
+            status,
+            headers,
+            chunks,
         })
     }
 }

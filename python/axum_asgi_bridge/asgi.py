@@ -69,13 +69,27 @@ class AxumAsgiApp:
         ]
 
         start = perf_counter()
-        status, response_headers, response_body = await self._native.dispatch(
-            scope.get("method", "GET"),
-            scope.get("path", "/"),
-            query_string,
-            headers,
-            b"".join(body_chunks),
-        )
+        status: int
+        response_headers: list[tuple[str, str]]
+        stream_chunks: list[bytes] | None = None
+
+        if hasattr(self._native, "dispatch_streaming"):
+            status, response_headers, stream_chunks = await self._native.dispatch_streaming(
+                scope.get("method", "GET"),
+                scope.get("path", "/"),
+                query_string,
+                headers,
+                b"".join(body_chunks),
+            )
+            response_body = b"".join(stream_chunks)
+        else:
+            status, response_headers, response_body = await self._native.dispatch(
+                scope.get("method", "GET"),
+                scope.get("path", "/"),
+                query_string,
+                headers,
+                b"".join(body_chunks),
+            )
         elapsed = perf_counter() - start
 
         if self._on_request_done is not None:
@@ -95,6 +109,22 @@ class AxumAsgiApp:
             for name, value in response_headers
         ]
         await send({"type": "http.response.start", "status": status, "headers": encoded_headers})
+
+        if stream_chunks is not None and self._stream_chunk_size <= 0:
+            if not stream_chunks:
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
+                return
+
+            for index, chunk in enumerate(stream_chunks):
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": chunk,
+                        "more_body": index < len(stream_chunks) - 1,
+                    }
+                )
+            return
+
         if self._stream_chunk_size <= 0 or len(response_body) <= self._stream_chunk_size:
             await send({"type": "http.response.body", "body": response_body, "more_body": False})
             return
