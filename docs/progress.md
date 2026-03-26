@@ -44,6 +44,7 @@ Last updated: 2026-03-26
 - 2026-03-26: Completed native websocket protocol loop in Rust (connect/accept, receive echo for text/bytes, disconnect/close handling) and added direct native protocol tests.
 - 2026-03-26: Updated backpressure dispatch callback accounting to capture real response status from `http.response.start` events.
 - 2026-03-26: Validation checkpoint after websocket/backpressure completion: `cargo test --all-targets`, `cargo test --all-targets --all-features`, `uv run pytest -q` (15 passed), and `uv run mkdocs build --strict` all pass.
+- 2026-03-26: Architectural blocker confirmed for Axum-native websocket upgrades in this embedding mode: `Router::oneshot` request dispatch does not provide Hyper upgrade context (`OnUpgrade` extensions), so extractor-driven Axum websocket routes cannot be fully bridged without a different transport integration strategy.
 
 ## Outstanding Gaps
 
