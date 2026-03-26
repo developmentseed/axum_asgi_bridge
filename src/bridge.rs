@@ -3,6 +3,7 @@ use std::str::FromStr;
 
 use axum::Router;
 use axum::body::Body;
+use axum::routing::MethodRouter;
 use axum::http::{HeaderName, HeaderValue, Method, Request, Uri};
 use axum::response::Response;
 use http_body_util::BodyExt;
@@ -32,6 +33,55 @@ pub struct AxumAsgiBridge {
     router: Router,
     openapi_schema: Option<JsonValue>,
     provided_route_patterns: BTreeSet<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RouteRegistry {
+    router: Router,
+    patterns: Vec<String>,
+}
+
+impl RouteRegistry {
+    pub fn new() -> Self {
+        Self {
+            router: Router::new(),
+            patterns: Vec::new(),
+        }
+    }
+
+    pub fn route(mut self, path: &str, method_router: MethodRouter) -> Self {
+        self.patterns.push(path.to_owned());
+        self.router = self.router.route(path, method_router);
+        self
+    }
+
+    pub fn nest(mut self, prefix: &str, nested: RouteRegistry) -> Self {
+        let normalized = if prefix.ends_with('/') {
+            prefix.trim_end_matches('/').to_owned()
+        } else {
+            prefix.to_owned()
+        };
+        for pattern in nested.patterns {
+            let joined = if normalized.is_empty() {
+                pattern
+            } else {
+                format!("{}{}", normalized, pattern)
+            };
+            self.patterns.push(joined);
+        }
+        self.router = self.router.nest(prefix, nested.router);
+        self
+    }
+
+    pub fn merge(mut self, other: RouteRegistry) -> Self {
+        self.patterns.extend(other.patterns);
+        self.router = self.router.merge(other.router);
+        self
+    }
+
+    pub fn into_bridge(self) -> AxumAsgiBridge {
+        AxumAsgiBridge::new(self.router).with_route_patterns(self.patterns)
+    }
 }
 
 impl AxumAsgiBridge {

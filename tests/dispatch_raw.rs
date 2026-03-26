@@ -1,6 +1,6 @@
 use axum::routing::get;
 use axum::{Json, Router};
-use axum_asgi_bridge::AxumAsgiBridge;
+use axum_asgi_bridge::{AxumAsgiBridge, RouteRegistry};
 use serde_json::json;
 
 #[tokio::test]
@@ -53,4 +53,23 @@ async fn dispatch_structured_avoids_json() {
             .unwrap_or_default()
             .contains("ok")
     );
+}
+
+#[tokio::test]
+async fn route_registry_tracks_patterns() {
+    async fn handler() -> Json<serde_json::Value> {
+        Json(json!({"ok": true}))
+    }
+
+    let bridge = RouteRegistry::new()
+        .route("/", get(handler))
+        .route("/items", get(handler))
+        .into_bridge();
+
+    let routes_json = bridge
+        .provided_route_patterns_json()
+        .expect("routes should serialize");
+    let routes: Vec<String> = serde_json::from_str(&routes_json).expect("valid json");
+    assert!(routes.contains(&"/".to_string()));
+    assert!(routes.contains(&"/items".to_string()));
 }

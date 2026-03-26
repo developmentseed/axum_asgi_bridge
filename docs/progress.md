@@ -8,7 +8,7 @@ Last updated: 2026-03-26
 2. WebSocket support: Not started
 3. ASGI lifespan events: Not started
 4. Tower middleware integration: Not started
-5. Automatic route pattern extraction: Not started
+5. Automatic route pattern extraction: Implemented
 6. OpenAPI auto-generation (utoipa): Not started
 7. Typed Python exception classes: Implemented (pending full test run)
 8. Metrics and tracing: Not started
@@ -23,6 +23,8 @@ Last updated: 2026-03-26
 - 2026-03-26: Added tests `test_exceptions.py` and `test_threadsafety.py`.
 - 2026-03-26: Blocker found during validation: PyO3 `0.28` in this project does not provide `Python::allow_threads`; switched implementation to `py.detach(...)` and resumed testing.
 - 2026-03-26: Test issue found: method `NOPE` is syntactically valid in HTTP, so `InvalidMethod` was not raised; updated exception test to use invalid header name (`"bad header"`) for deterministic `InvalidRequestError` coverage.
+- 2026-03-26: Started item 5 implementation with new `RouteRegistry` type and migrated demo app to route registration through the registry.
+- 2026-03-26: Completed item 5 with tests (`route_registry_tracks_patterns`); fixed follow-up warning by removing an unused `Router` import.
 
 ## Repeated Mistakes Guardrail
 

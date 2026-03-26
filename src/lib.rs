@@ -4,13 +4,13 @@ mod error;
 use std::collections::HashMap;
 
 use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::Json;
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use serde_json::{Value as JsonValue, json};
 
-pub use bridge::{AsgiHttpScope, AxumAsgiBridge, DispatchResult};
+pub use bridge::{AsgiHttpScope, AxumAsgiBridge, DispatchResult, RouteRegistry};
 pub use error::{BridgeError, Result};
 
 create_exception!(_native, BridgeErrorPy, PyException);
@@ -93,7 +93,7 @@ impl PyAxumAsgiBridge {
     }
 }
 
-fn demo_router() -> Router {
+fn demo_routes() -> RouteRegistry {
     async fn health() -> Json<JsonValue> {
         Json(json!({"ok": true, "service": "axum_asgi_bridge"}))
     }
@@ -102,7 +102,7 @@ fn demo_router() -> Router {
         Json(json!({"echo": body}))
     }
 
-    Router::new()
+    RouteRegistry::new()
         .route("/", get(health))
         .route("/echo", post(echo))
 }
@@ -110,8 +110,8 @@ fn demo_router() -> Router {
 #[pyfunction]
 #[pyo3(signature = (_config = None))]
 fn demo_app(_config: Option<HashMap<String, String>>) -> PyAxumAsgiBridge {
-    let bridge = AxumAsgiBridge::new(demo_router())
-        .with_route_patterns(["/".to_string(), "/echo".to_string()])
+    let bridge = demo_routes()
+        .into_bridge()
         .with_openapi_schema(json!({
             "openapi": "3.1.0",
             "info": {"title": "axum_asgi_bridge demo", "version": "0.1.0"},
