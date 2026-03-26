@@ -41,4 +41,5 @@ nav:
   - Quickstart: quickstart.md
   - API Reference: api.md
   - Performance: performance.md
+  - Roadmap: roadmap.md
   - CI and Release: ci_release.md
