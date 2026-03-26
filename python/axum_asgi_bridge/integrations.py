@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
@@ -26,6 +27,11 @@ class DelegatePathsMiddleware:
         self.should_delegate = should_delegate or (lambda _path: False)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") == "lifespan":
+            await self.delegated_app(scope, receive, send)
+            await self.app(scope, receive, send)
+            return
+
         if scope.get("type") != "http":
             await self.app(scope, receive, send)
             return
@@ -103,6 +109,23 @@ def install_openapi_merger(
         return app.openapi_schema
 
     app.openapi = custom_openapi
+
+
+def install_lifespan(app: Any, delegated_app: Any) -> None:
+    """Install a FastAPI lifespan wrapper that invokes delegated startup/shutdown.
+
+    The delegated app may expose async `on_startup()` / `on_shutdown()` methods.
+    """
+
+    @asynccontextmanager
+    async def lifespan(_app: Any):
+        if hasattr(delegated_app, "_native") and hasattr(delegated_app._native, "on_startup"):
+            await delegated_app._native.on_startup()
+        yield
+        if hasattr(delegated_app, "_native") and hasattr(delegated_app._native, "on_shutdown"):
+            await delegated_app._native.on_shutdown()
+
+    app.router.lifespan_context = lifespan
 
 
 def missing_delegated_routes(

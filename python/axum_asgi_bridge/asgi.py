@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from time import perf_counter
 from typing import Any
 
 
@@ -17,12 +18,32 @@ class AxumAsgiApp:
     Python objects directly into Rust via PyO3 for maximum throughput.
     """
 
-    __slots__ = ("_native",)
+    __slots__ = ("_native", "_on_request_done", "_stream_chunk_size")
 
-    def __init__(self, native_app: Any):
+    def __init__(
+        self,
+        native_app: Any,
+        *,
+        on_request_done: Any | None = None,
+        stream_chunk_size: int = 0,
+    ):
         self._native = native_app
+        self._on_request_done = on_request_done
+        self._stream_chunk_size = max(0, int(stream_chunk_size))
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        scope_type = scope.get("type")
+        if scope_type == "lifespan":
+            await self._handle_lifespan(receive, send)
+            return
+        if scope_type == "websocket":
+            if hasattr(self._native, "dispatch_websocket"):
+                await self._native.dispatch_websocket(scope, receive, send)
+                return
+            raise NotImplementedError("websocket scope is not implemented by this bridge")
+        if scope_type != "http":
+            raise NotImplementedError(f"unsupported ASGI scope type: {scope_type}")
+
         body_chunks: list[bytes] = []
         while True:
             event = await receive()
@@ -47,6 +68,7 @@ class AxumAsgiApp:
             for k, v in scope.get("headers", [])
         ]
 
+        start = perf_counter()
         status, response_headers, response_body = await self._native.dispatch(
             scope.get("method", "GET"),
             scope.get("path", "/"),
@@ -54,6 +76,16 @@ class AxumAsgiApp:
             headers,
             b"".join(body_chunks),
         )
+        elapsed = perf_counter() - start
+
+        if self._on_request_done is not None:
+            self._on_request_done(
+                method=scope.get("method", "GET"),
+                path=scope.get("path", "/"),
+                status=status,
+                duration_s=elapsed,
+                response_bytes=len(response_body),
+            )
 
         encoded_headers = [
             (
@@ -63,7 +95,43 @@ class AxumAsgiApp:
             for name, value in response_headers
         ]
         await send({"type": "http.response.start", "status": status, "headers": encoded_headers})
-        await send({"type": "http.response.body", "body": response_body, "more_body": False})
+        if self._stream_chunk_size <= 0 or len(response_body) <= self._stream_chunk_size:
+            await send({"type": "http.response.body", "body": response_body, "more_body": False})
+            return
+
+        index = 0
+        total = len(response_body)
+        while index < total:
+            chunk = response_body[index : index + self._stream_chunk_size]
+            index += self._stream_chunk_size
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": chunk,
+                    "more_body": index < total,
+                }
+            )
+
+    async def _handle_lifespan(self, receive: Any, send: Any) -> None:
+        while True:
+            event = await receive()
+            event_type = event.get("type")
+            if event_type == "lifespan.startup":
+                try:
+                    if hasattr(self._native, "on_startup"):
+                        await self._native.on_startup()
+                    await send({"type": "lifespan.startup.complete"})
+                except Exception as exc:
+                    await send({"type": "lifespan.startup.failed", "message": str(exc)})
+                    return
+            elif event_type == "lifespan.shutdown":
+                try:
+                    if hasattr(self._native, "on_shutdown"):
+                        await self._native.on_shutdown()
+                    await send({"type": "lifespan.shutdown.complete"})
+                except Exception as exc:
+                    await send({"type": "lifespan.shutdown.failed", "message": str(exc)})
+                return
 
     def openapi_schema(self) -> dict[str, Any] | None:
         raw = self._native.openapi_schema_json()

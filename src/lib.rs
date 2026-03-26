@@ -91,6 +91,14 @@ impl PyAxumAsgiBridge {
         py.detach(|| self.inner.provided_route_patterns_json())
             .map_err(to_py_err)
     }
+
+    fn on_startup<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(()) })
+    }
+
+    fn on_shutdown<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(()) })
+    }
 }
 
 fn demo_routes() -> RouteRegistry {

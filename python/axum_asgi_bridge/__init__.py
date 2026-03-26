@@ -12,10 +12,12 @@ from .exceptions import (
 )
 from .integrations import (
     DelegatePathsMiddleware,
+    install_lifespan,
     install_openapi_merger,
     merge_openapi_with_delegate,
     missing_delegated_routes,
 )
+from .metrics import PrometheusMetricsHook
 
 
 def demo_asgi_app() -> AxumAsgiApp:
@@ -31,7 +33,9 @@ __all__ = [
     "InvalidRequestError",
     "ResponseBodyError",
     "DelegatePathsMiddleware",
+    "PrometheusMetricsHook",
     "demo_asgi_app",
+    "install_lifespan",
     "install_openapi_merger",
     "merge_openapi_with_delegate",
     "missing_delegated_routes",

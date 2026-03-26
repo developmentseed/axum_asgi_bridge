@@ -27,6 +27,9 @@ dev = [
   "mypy>=1.13",
   "maturin>=1.8,<2.0"
 ]
+observability = [
+  "prometheus-client>=0.20"
+]
 
 [tool.maturin]
 python-source = "python"
