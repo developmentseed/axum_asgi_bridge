@@ -68,10 +68,45 @@ class AxumAsgiApp:
             for k, v in scope.get("headers", [])
         ]
 
+        response_bytes = 0
+        response_status = 0
+
+        async def tracking_send(event: dict[str, Any]) -> None:
+            nonlocal response_bytes, response_status
+            if event.get("type") == "http.response.start":
+                response_status = int(event.get("status", 0) or 0)
+            if event.get("type") == "http.response.body":
+                chunk = event.get("body", b"") or b""
+                if isinstance(chunk, str):
+                    chunk = chunk.encode("utf-8")
+                response_bytes += len(chunk)
+            await send(event)
+
         start = perf_counter()
         status: int
         response_headers: list[tuple[str, str]]
         stream_chunks: list[bytes] | None = None
+
+        if hasattr(self._native, "dispatch_to_send") and self._stream_chunk_size <= 0:
+            await self._native.dispatch_to_send(
+                scope.get("method", "GET"),
+                scope.get("path", "/"),
+                query_string,
+                headers,
+                b"".join(body_chunks),
+                tracking_send,
+            )
+            elapsed = perf_counter() - start
+
+            if self._on_request_done is not None:
+                self._on_request_done(
+                    method=scope.get("method", "GET"),
+                    path=scope.get("path", "/"),
+                    status=response_status,
+                    duration_s=elapsed,
+                    response_bytes=response_bytes,
+                )
+            return
 
         if hasattr(self._native, "dispatch_streaming"):
             status, response_headers, stream_chunks = await self._native.dispatch_streaming(

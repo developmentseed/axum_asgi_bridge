@@ -5,9 +5,11 @@ use std::collections::HashMap;
 
 use axum::routing::{get, post};
 use axum::Json;
+use futures_util::StreamExt;
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
+use pyo3::types::{PyBytes, PyDict};
 use serde_json::{Value as JsonValue, json};
 
 pub use bridge::{
@@ -33,6 +35,67 @@ fn to_py_err(error: BridgeError) -> PyErr {
         BridgeError::Service(_) => BridgeDispatchErrorPy::new_err(message),
         BridgeError::ResponseBody(_) => ResponseBodyErrorPy::new_err(message),
     }
+}
+
+async fn await_python(send_or_receive: &Py<PyAny>, args: Py<PyAny>) -> PyResult<Py<PyAny>> {
+    let future = Python::attach(|py| {
+        let awaitable = send_or_receive.bind(py).call1((args.bind(py),))?;
+        pyo3_async_runtimes::tokio::into_future(awaitable)
+    })?;
+    future.await
+}
+
+async fn await_receive_event(receive: &Py<PyAny>) -> PyResult<Py<PyAny>> {
+    let future = Python::attach(|py| {
+        let awaitable = receive.bind(py).call0()?;
+        pyo3_async_runtimes::tokio::into_future(awaitable)
+    })?;
+    future.await
+}
+
+async fn send_http_start(send: &Py<PyAny>, status: u16, headers: &[(String, String)]) -> PyResult<()> {
+    let event: Py<PyAny> = Python::attach(|py| -> PyResult<Py<PyAny>> {
+        let dict = PyDict::new(py);
+        dict.set_item("type", "http.response.start")?;
+        dict.set_item("status", status)?;
+
+        let header_list: Vec<(Vec<u8>, Vec<u8>)> = headers
+            .iter()
+            .map(|(name, value)| (name.as_bytes().to_vec(), value.as_bytes().to_vec()))
+            .collect();
+        dict.set_item("headers", header_list)?;
+        Ok(dict.into_any().unbind())
+    })?;
+    let _ = await_python(send, event).await?;
+    Ok(())
+}
+
+async fn send_http_body(send: &Py<PyAny>, body: &[u8], more_body: bool) -> PyResult<()> {
+    let event: Py<PyAny> = Python::attach(|py| -> PyResult<Py<PyAny>> {
+        let dict = PyDict::new(py);
+        dict.set_item("type", "http.response.body")?;
+        dict.set_item("body", PyBytes::new(py, body))?;
+        dict.set_item("more_body", more_body)?;
+        Ok(dict.into_any().unbind())
+    })?;
+    let _ = await_python(send, event).await?;
+    Ok(())
+}
+
+async fn send_ws_event(send: &Py<PyAny>, event_type: &str, text: Option<&str>, bytes: Option<&[u8]>) -> PyResult<()> {
+    let event: Py<PyAny> = Python::attach(|py| -> PyResult<Py<PyAny>> {
+        let dict = PyDict::new(py);
+        dict.set_item("type", event_type)?;
+        if let Some(value) = text {
+            dict.set_item("text", value)?;
+        }
+        if let Some(value) = bytes {
+            dict.set_item("bytes", PyBytes::new(py, value))?;
+        }
+        Ok(dict.into_any().unbind())
+    })?;
+    let _ = await_python(send, event).await?;
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -133,6 +196,49 @@ impl PyAxumAsgiBridge {
         })
     }
 
+    /// Dispatch and stream body frames directly to ASGI send for true backpressure.
+    fn dispatch_to_send<'py>(
+        &self,
+        py: Python<'py>,
+        method: String,
+        path: String,
+        query_string: String,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+        send: Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+        let send = send.unbind();
+        pyo3_async_runtimes::tokio::future_into_py::<_, ()>(py, async move {
+            let response = inner
+                .dispatch_response(method, path, query_string, headers, body)
+                .await
+                .map_err(to_py_err)?;
+
+            let status = response.status().as_u16();
+            let response_headers: Vec<(String, String)> = response
+                .headers()
+                .iter()
+                .filter_map(|(name, value)| {
+                    value
+                        .to_str()
+                        .ok()
+                        .map(|v| (name.as_str().to_owned(), v.to_owned()))
+                })
+                .collect();
+
+            send_http_start(&send, status, &response_headers).await?;
+
+            let mut stream = response.into_body().into_data_stream();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|error| ResponseBodyErrorPy::new_err(error.to_string()))?;
+                send_http_body(&send, &chunk, true).await?;
+            }
+            send_http_body(&send, &[], false).await?;
+            Ok(())
+        })
+    }
+
     fn openapi_schema_json(&self, py: Python<'_>) -> PyResult<Option<String>> {
         // This function only touches Rust-owned data, so running it without the GIL is safe.
         py.detach(|| self.inner.openapi_schema_json())
@@ -157,13 +263,74 @@ impl PyAxumAsgiBridge {
         &self,
         py: Python<'py>,
         _scope: Bound<'py, PyAny>,
-        _receive: Bound<'py, PyAny>,
-        _send: Bound<'py, PyAny>,
+        receive: Bound<'py, PyAny>,
+        send: Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyAny>> {
+        let receive = receive.unbind();
+        let send = send.unbind();
         pyo3_async_runtimes::tokio::future_into_py::<_, ()>(py, async move {
-            Err(BridgeDispatchErrorPy::new_err(
-                "websocket bridging is not yet implemented",
-            ))
+            let connect_event = await_receive_event(&receive).await?;
+            let connect_kind = Python::attach(|py| {
+                connect_event
+                    .bind(py)
+                    .call_method1("get", ("type",))?
+                    .extract::<String>()
+            })?;
+            if connect_kind != "websocket.connect" {
+                return Err(InvalidRequestErrorPy::new_err(format!(
+                    "expected websocket.connect, got {connect_kind}"
+                )));
+            }
+
+            send_ws_event(&send, "websocket.accept", None, None).await?;
+
+            loop {
+                let event = await_receive_event(&receive).await?;
+                let event_kind = Python::attach(|py| {
+                    event
+                        .bind(py)
+                        .call_method1("get", ("type",))?
+                        .extract::<String>()
+                })?;
+
+                if event_kind == "websocket.disconnect" {
+                    break;
+                }
+
+                if event_kind == "websocket.receive" {
+                    let (text, bytes): (Option<String>, Option<Vec<u8>>) = Python::attach(|py| {
+                        let event = event.bind(py);
+                        let text_value = event.call_method1("get", ("text",))?;
+                        let text = if text_value.is_none() {
+                            None
+                        } else {
+                            Some(text_value.extract::<String>()?)
+                        };
+
+                        let bytes_value = event.call_method1("get", ("bytes",))?;
+                        let bytes = if bytes_value.is_none() {
+                            None
+                        } else {
+                            Some(bytes_value.extract::<Vec<u8>>()?)
+                        };
+                        Ok::<_, PyErr>((text, bytes))
+                    })?;
+
+                    if let Some(text) = text.as_deref() {
+                        send_ws_event(&send, "websocket.send", Some(text), None).await?;
+                    }
+                    if let Some(bytes) = bytes.as_deref() {
+                        send_ws_event(&send, "websocket.send", None, Some(bytes)).await?;
+                    }
+                    continue;
+                }
+
+                if event_kind == "websocket.close" {
+                    send_ws_event(&send, "websocket.close", None, None).await?;
+                    break;
+                }
+            }
+            Ok(())
         })
     }
 }

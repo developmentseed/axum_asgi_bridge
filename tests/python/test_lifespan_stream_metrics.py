@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
-
 from axum_asgi_bridge import AxumAsgiApp, install_lifespan
+from axum_asgi_bridge._native import demo_app as _demo_native
+from fastapi import FastAPI
 
 
 class _MockNative:
@@ -32,6 +32,18 @@ class _MockWebSocketNative(_MockNative):
 
     async def dispatch_websocket(self, scope, receive, send):
         self.websocket_called = True
+
+
+class _MockDispatchToSendNative(_MockNative):
+    def __init__(self) -> None:
+        super().__init__()
+        self.called = False
+
+    async def dispatch_to_send(self, method, path, query_string, headers, body, send):
+        self.called = True
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"hello", "more_body": True})
+        await send({"type": "http.response.body", "body": b" world", "more_body": False})
 
 
 async def test_asgi_lifespan_events_are_handled() -> None:
@@ -167,3 +179,63 @@ async def test_install_lifespan_invokes_native_hooks() -> None:
         assert native.started is True
 
     assert native.stopped is True
+
+
+async def test_http_prefers_native_dispatch_to_send_for_backpressure() -> None:
+    native = _MockDispatchToSendNative()
+    captured = {}
+
+    def on_request_done(**kwargs):
+        captured.update(kwargs)
+
+    app = AxumAsgiApp(native, on_request_done=on_request_done)
+    sent = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(event):
+        sent.append(event)
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "query_string": b"",
+        "headers": [],
+    }
+    await app(scope, receive, send)
+
+    assert native.called is True
+    body_events = [event for event in sent if event["type"] == "http.response.body"]
+    assert len(body_events) == 2
+    assert body_events[0]["more_body"] is True
+    assert body_events[-1]["more_body"] is False
+    assert captured["status"] == 200
+    assert captured["response_bytes"] == len(b"hello world")
+
+
+async def test_native_websocket_protocol_loop_echoes_text() -> None:
+    native = _demo_native()
+
+    events = iter(
+        [
+            {"type": "websocket.connect"},
+            {"type": "websocket.receive", "text": "ping", "bytes": None},
+            {"type": "websocket.disconnect", "code": 1000},
+        ]
+    )
+    sent = []
+
+    async def receive():
+        return next(events)
+
+    async def send(event):
+        sent.append(event)
+
+    scope = {"type": "websocket", "path": "/ws"}
+    await native.dispatch_websocket(scope, receive, send)
+
+    assert sent[0]["type"] == "websocket.accept"
+    assert sent[1]["type"] == "websocket.send"
+    assert sent[1]["text"] == "ping"

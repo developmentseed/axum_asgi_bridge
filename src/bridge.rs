@@ -224,6 +224,41 @@ impl AxumAsgiBridge {
         self.dispatch_scope_streaming(scope, body).await
     }
 
+    /// Dispatch and return the raw HTTP response for caller-managed body streaming.
+    pub async fn dispatch_response(
+        &self,
+        method: String,
+        path: String,
+        query_string: String,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+    ) -> Result<Response> {
+        let scope = AsgiHttpScope {
+            method,
+            path,
+            query_string: if query_string.is_empty() {
+                None
+            } else {
+                Some(query_string)
+            },
+            headers,
+        };
+
+        #[cfg(feature = "observability")]
+        tracing::info!(
+            http.method = %scope.method,
+            http.path = %scope.path,
+            "dispatch start"
+        );
+
+        let request = scope_to_http_request(scope, body)?;
+        self.router
+            .clone()
+            .oneshot(request)
+            .await
+            .map_err(|error| BridgeError::Service(error.to_string()))
+    }
+
     /// Dispatch a request from a JSON-encoded ASGI scope string.
     pub async fn dispatch_raw(&self, scope_json: &str, body: Vec<u8>) -> Result<DispatchResult> {
         let scope: AsgiHttpScope =

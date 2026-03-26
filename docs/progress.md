@@ -5,7 +5,7 @@ Last updated: 2026-03-26
 ## Status Summary
 
 1. Streaming response support: Implemented (native chunk path + ASGI chunk sends)
-2. WebSocket support: Partially implemented (dispatch hook path and tests; full Rust websocket upgrade bridge still missing)
+2. WebSocket support: Implemented protocol loop (echo bridge); Axum websocket-upgrade integration still pending
 3. ASGI lifespan events: Implemented
 4. Tower middleware integration: Implemented (feature-gated)
 5. Automatic route pattern extraction: Implemented
@@ -37,11 +37,18 @@ Last updated: 2026-03-26
 - 2026-03-26: Item 2 pass: added websocket dispatch call path in Python ASGI adapter and native placeholder method; full Rust websocket upgrade bridge remains outstanding.
 - 2026-03-26: Fixed websocket placeholder compile issue by explicitly setting `future_into_py::<_, ()>` return type in PyO3 binding.
 - 2026-03-26: Final validation checkpoint: `cargo test --all-targets`, `cargo test --all-targets --all-features`, `uv run pytest -q` (13 passed), and `uv run mkdocs build --strict` all pass.
+- 2026-03-26: New pass started to complete the two remaining gaps: full websocket protocol loop and fully backpressure-driven streaming handoff.
+- 2026-03-26: Added bridge-level `dispatch_response` API to support no-buffer body forwarding from Rust to ASGI `send`.
+- 2026-03-26: Integrated native `dispatch_to_send` into Python ASGI adapter for backpressure-first HTTP path (awaiting each send event, no chunk vector materialization in Python).
+- 2026-03-26: Blocker found in PyO3 event extraction (dict item API differences); fixed by using Python `dict.get(...)` calls and explicit closure return typing in native async send/receive helpers.
+- 2026-03-26: Completed native websocket protocol loop in Rust (connect/accept, receive echo for text/bytes, disconnect/close handling) and added direct native protocol tests.
+- 2026-03-26: Updated backpressure dispatch callback accounting to capture real response status from `http.response.start` events.
+- 2026-03-26: Validation checkpoint after websocket/backpressure completion: `cargo test --all-targets`, `cargo test --all-targets --all-features`, `uv run pytest -q` (15 passed), and `uv run mkdocs build --strict` all pass.
 
 ## Outstanding Gaps
 
-- Item 2 full websocket protocol bridging is still outstanding (upgrade negotiation and bidirectional frame relay across ASGI channels).
-- Item 1 currently returns chunk frames as a vector from Rust before ASGI emits them; true backpressure-driven incremental handoff is a future enhancement.
+- Item 2 Axum-native websocket upgrade integration is still pending; current protocol bridge is Rust-native ASGI websocket echo loop (connect/accept/receive/send/close/disconnect), not route-dispatched via Axum upgrade extractors.
+- Item 1 native backpressure handoff is implemented through `dispatch_to_send`; existing `dispatch_streaming` vector-chunk API remains for compatibility.
 
 ## Repeated Mistakes Guardrail
 
