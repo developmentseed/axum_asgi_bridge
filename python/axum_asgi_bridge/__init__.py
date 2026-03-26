@@ -3,6 +3,13 @@ from __future__ import annotations
 from ._native import demo_app as _demo_native
 from ._native import version
 from .asgi import AxumAsgiApp
+from .exceptions import (
+    BridgeConfigError,
+    BridgeDispatchError,
+    BridgeError,
+    InvalidRequestError,
+    ResponseBodyError,
+)
 from .integrations import (
     DelegatePathsMiddleware,
     install_openapi_merger,
@@ -18,6 +25,11 @@ def demo_asgi_app() -> AxumAsgiApp:
 
 __all__ = [
     "AxumAsgiApp",
+    "BridgeError",
+    "BridgeDispatchError",
+    "BridgeConfigError",
+    "InvalidRequestError",
+    "ResponseBodyError",
     "DelegatePathsMiddleware",
     "demo_asgi_app",
     "install_openapi_merger",

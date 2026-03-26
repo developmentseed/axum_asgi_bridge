@@ -5,12 +5,33 @@ use std::collections::HashMap;
 
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::create_exception;
+use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use serde_json::{Value as JsonValue, json};
 
 pub use bridge::{AsgiHttpScope, AxumAsgiBridge, DispatchResult};
 pub use error::{BridgeError, Result};
+
+create_exception!(_native, BridgeErrorPy, PyException);
+create_exception!(_native, BridgeDispatchErrorPy, BridgeErrorPy);
+create_exception!(_native, BridgeConfigErrorPy, BridgeErrorPy);
+create_exception!(_native, InvalidRequestErrorPy, BridgeErrorPy);
+create_exception!(_native, ResponseBodyErrorPy, BridgeErrorPy);
+
+fn to_py_err(error: BridgeError) -> PyErr {
+    let message = error.to_string();
+    match error {
+        BridgeError::JsonDecode { .. } => BridgeConfigErrorPy::new_err(message),
+        BridgeError::JsonEncode { .. } => BridgeConfigErrorPy::new_err(message),
+        BridgeError::InvalidMethod(_)
+        | BridgeError::InvalidUri(_)
+        | BridgeError::InvalidHeaderName(_)
+        | BridgeError::InvalidHeaderValue { .. } => InvalidRequestErrorPy::new_err(message),
+        BridgeError::Service(_) => BridgeDispatchErrorPy::new_err(message),
+        BridgeError::ResponseBody(_) => ResponseBodyErrorPy::new_err(message),
+    }
+}
 
 #[derive(Clone)]
 #[pyclass(skip_from_py_object)]
@@ -35,7 +56,7 @@ impl PyAxumAsgiBridge {
             let result = inner
                 .dispatch(method, path, query_string, headers, body)
                 .await
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+                .map_err(to_py_err)?;
             Ok((result.status, result.headers, result.body))
         })
     }
@@ -52,23 +73,23 @@ impl PyAxumAsgiBridge {
             let result = inner
                 .dispatch_raw(&scope_json, body)
                 .await
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+                .map_err(to_py_err)?;
             let headers_json = serde_json::to_string(&result.headers)
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+                .map_err(|e| BridgeConfigErrorPy::new_err(e.to_string()))?;
             Ok((result.status, headers_json, result.body))
         })
     }
 
-    fn openapi_schema_json(&self) -> PyResult<Option<String>> {
-        self.inner
-            .openapi_schema_json()
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    fn openapi_schema_json(&self, py: Python<'_>) -> PyResult<Option<String>> {
+        // This function only touches Rust-owned data, so running it without the GIL is safe.
+        py.detach(|| self.inner.openapi_schema_json())
+            .map_err(to_py_err)
     }
 
-    fn provided_route_patterns_json(&self) -> PyResult<String> {
-        self.inner
-            .provided_route_patterns_json()
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    fn provided_route_patterns_json(&self, py: Python<'_>) -> PyResult<String> {
+        // This function only touches Rust-owned data, so running it without the GIL is safe.
+        py.detach(|| self.inner.provided_route_patterns_json())
+            .map_err(to_py_err)
     }
 }
 
@@ -110,6 +131,11 @@ fn version() -> String {
 #[pymodule]
 fn _native(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyAxumAsgiBridge>()?;
+    m.add("BridgeError", _py.get_type::<BridgeErrorPy>())?;
+    m.add("BridgeDispatchError", _py.get_type::<BridgeDispatchErrorPy>())?;
+    m.add("BridgeConfigError", _py.get_type::<BridgeConfigErrorPy>())?;
+    m.add("InvalidRequestError", _py.get_type::<InvalidRequestErrorPy>())?;
+    m.add("ResponseBodyError", _py.get_type::<ResponseBodyErrorPy>())?;
     m.add_function(wrap_pyfunction!(demo_app, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     Ok(())
