@@ -8,10 +8,8 @@ Use this file as the Python composition pattern once your native bridge exposes
 an utoipa-derived schema.
 """
 
-from fastapi import FastAPI
-
 from axum_asgi_bridge import demo_asgi_app, install_openapi_merger
-
+from fastapi import FastAPI
 
 rust_app = demo_asgi_app()
 app = FastAPI(title="axum_asgi_bridge utoipa example")

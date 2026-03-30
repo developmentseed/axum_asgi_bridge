@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from axum_asgi_bridge import InvalidRequestError
 from axum_asgi_bridge._native import demo_app as _demo_native
 
