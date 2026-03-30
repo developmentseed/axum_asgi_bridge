@@ -50,6 +50,9 @@ Used by `missing_delegated_routes` to verify OpenAPI completeness.
 - `lifespan`
 - `websocket` (only when native `dispatch_websocket` exists)
 
+For `http`, the adapter prefers native `dispatch_to_send(...)` when available,
+which forwards response frames to ASGI `send` with per-frame await semantics.
+
 ### `PrometheusMetricsHook`
 
 ```python
@@ -268,6 +271,20 @@ JSON parsing. Used by the Python wrapper on the hot path.
 
 Dispatch from a JSON-encoded ASGI scope string. Useful for callers that already
 have JSON (e.g., testing, external integrations).
+
+#### `async dispatch_response(&self, method, path, query_string, headers, body) -> Result<Response>`
+
+Dispatch and return the raw `http::Response` so callers can stream body frames
+without collecting the entire body.
+
+#### `async dispatch_streaming(&self, method, path, query_string, headers, body) -> Result<DispatchStreamingResult>`
+
+Dispatch and return body chunks as vectors for compatibility-oriented callers.
+
+#### `dispatch_to_send(method, path, query_string, headers, body, send)` (Python native binding)
+
+Dispatch and push `http.response.start` / `http.response.body` events directly
+to ASGI `send`, awaiting each call before reading the next body frame.
 
 #### `openapi_schema_json(&self) -> Result<Option<String>>`
 

@@ -180,7 +180,7 @@ impl AxumAsgiBridge {
         })
     }
 
-    /// Dispatch a request from structured arguments, avoiding JSON overhead.
+    /// Dispatch a request from structured arguments.
     pub async fn dispatch(
         &self,
         method: String,
@@ -202,7 +202,7 @@ impl AxumAsgiBridge {
         self.dispatch_scope(scope, body).await
     }
 
-    /// Dispatch a request and preserve native body chunking.
+    /// Dispatch a request and return body chunks.
     pub async fn dispatch_streaming(
         &self,
         method: String,
@@ -224,7 +224,7 @@ impl AxumAsgiBridge {
         self.dispatch_scope_streaming(scope, body).await
     }
 
-    /// Dispatch and return the raw HTTP response for caller-managed body streaming.
+    /// Dispatch and return a raw HTTP response for caller-managed streaming.
     pub async fn dispatch_response(
         &self,
         method: String,
@@ -259,7 +259,7 @@ impl AxumAsgiBridge {
             .map_err(|error| BridgeError::Service(error.to_string()))
     }
 
-    /// Dispatch a request from a JSON-encoded ASGI scope string.
+    /// Dispatch a request from a JSON-encoded ASGI scope.
     pub async fn dispatch_raw(&self, scope_json: &str, body: Vec<u8>) -> Result<DispatchResult> {
         let scope: AsgiHttpScope =
             serde_json::from_str(scope_json).map_err(|error| BridgeError::JsonDecode {

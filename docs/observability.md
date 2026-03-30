@@ -40,11 +40,12 @@ Enable the `observability` feature in Rust to instrument dispatch spans:
 axum_asgi_bridge = { version = "0.1.0", features = ["observability"] }
 ```
 
-This enables `tracing::info_span!` around each dispatch and emits completion
-log fields including status and response size.
+This enables dispatch start/completion tracing events and emits fields such as
+method, path, status, and response size.
 
 ## Recommended Setup
 
 - Use Python callback hooks for app-level metrics exports.
 - Use Rust tracing for dispatch internals and latency drill-down.
 - Use both together in production when you need end-to-end visibility.
+- Prefer structured logs and a central collector in production deployments.

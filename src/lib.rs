@@ -137,7 +137,7 @@ impl PyAxumAsgiBridge {
         }
     }
 
-    /// Dispatch via structured arguments — no JSON serialization overhead.
+    /// Dispatch from structured arguments.
     fn dispatch<'py>(
         &self,
         py: Python<'py>,
@@ -157,7 +157,7 @@ impl PyAxumAsgiBridge {
         })
     }
 
-    /// Dispatch via JSON scope string — kept for backward compatibility.
+    /// Dispatch from a JSON scope payload (compatibility path).
     fn dispatch_bytes<'py>(
         &self,
         py: Python<'py>,
@@ -176,7 +176,7 @@ impl PyAxumAsgiBridge {
         })
     }
 
-    /// Dispatch and return natural response body chunks from the native body stream.
+    /// Dispatch and return body chunks as vectors.
     fn dispatch_streaming<'py>(
         &self,
         py: Python<'py>,
@@ -196,7 +196,7 @@ impl PyAxumAsgiBridge {
         })
     }
 
-    /// Dispatch and stream body frames directly to ASGI send for true backpressure.
+    /// Dispatch and forward frames to ASGI send, awaiting each send call.
     fn dispatch_to_send<'py>(
         &self,
         py: Python<'py>,
@@ -240,13 +240,13 @@ impl PyAxumAsgiBridge {
     }
 
     fn openapi_schema_json(&self, py: Python<'_>) -> PyResult<Option<String>> {
-        // This function only touches Rust-owned data, so running it without the GIL is safe.
+        // Only Rust-owned data is touched, so this can run detached from the GIL.
         py.detach(|| self.inner.openapi_schema_json())
             .map_err(to_py_err)
     }
 
     fn provided_route_patterns_json(&self, py: Python<'_>) -> PyResult<String> {
-        // This function only touches Rust-owned data, so running it without the GIL is safe.
+        // Only Rust-owned data is touched, so this can run detached from the GIL.
         py.detach(|| self.inner.provided_route_patterns_json())
             .map_err(to_py_err)
     }

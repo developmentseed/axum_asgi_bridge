@@ -117,6 +117,21 @@ uv run pytest -v             # Python integration tests
 scripts/check.sh             # Full CI check (lint + test + docs)
 ```
 
+## Production Readiness Checklist
+
+- Build in release mode (`uv run maturin develop --release` or wheel build).
+- Run `scripts/check.sh` in CI for every change.
+- Keep delegated route list synchronized with router changes (or use `RouteRegistry`).
+- Enable timeout/compression/tracing layers when needed (`middleware`/`observability` features).
+- Add request metrics hooks (`on_request_done`, `PrometheusMetricsHook`) before launch.
+- Validate behavior for large responses and websocket workloads in staging.
+
+## Current Limits
+
+- Axum extractor-native websocket upgrades are not available through `Router::oneshot` in this embedding path.
+- `dispatch_to_send` is the preferred path for backpressure-driven HTTP streaming.
+- `dispatch_streaming` remains available for compatibility and returns chunk vectors.
+
 ## Documentation
 
 Build and serve locally:
