@@ -238,3 +238,80 @@ async def test_native_websocket_protocol_loop_echoes_text() -> None:
     assert sent[0]["type"] == "websocket.accept"
     assert sent[1]["type"] == "websocket.send"
     assert sent[1]["text"] == "ping"
+
+
+async def test_native_websocket_protocol_loop_echoes_bytes() -> None:
+    native = _demo_native()
+
+    events = iter(
+        [
+            {"type": "websocket.connect"},
+            {"type": "websocket.receive", "text": None, "bytes": b"\x00\x01"},
+            {"type": "websocket.disconnect", "code": 1000},
+        ]
+    )
+    sent = []
+
+    async def receive():
+        return next(events)
+
+    async def send(event):
+        sent.append(event)
+
+    scope = {"type": "websocket", "path": "/ws"}
+    await native.dispatch_websocket(scope, receive, send)
+
+    assert sent[0]["type"] == "websocket.accept"
+    assert sent[1]["type"] == "websocket.send"
+    assert sent[1]["bytes"] == b"\x00\x01"
+
+
+async def test_native_websocket_close_preserves_code_and_reason() -> None:
+    native = _demo_native()
+
+    events = iter(
+        [
+            {"type": "websocket.connect"},
+            {"type": "websocket.close", "code": 1001, "reason": "going away"},
+        ]
+    )
+    sent = []
+
+    async def receive():
+        return next(events)
+
+    async def send(event):
+        sent.append(event)
+
+    scope = {"type": "websocket", "path": "/ws"}
+    await native.dispatch_websocket(scope, receive, send)
+
+    assert sent[0]["type"] == "websocket.accept"
+    assert sent[1]["type"] == "websocket.close"
+    assert sent[1]["code"] == 1001
+    assert sent[1]["reason"] == "going away"
+
+
+async def test_native_websocket_receive_with_text_and_bytes_closes_with_1003() -> None:
+    native = _demo_native()
+
+    events = iter(
+        [
+            {"type": "websocket.connect"},
+            {"type": "websocket.receive", "text": "bad", "bytes": b"bad"},
+        ]
+    )
+    sent = []
+
+    async def receive():
+        return next(events)
+
+    async def send(event):
+        sent.append(event)
+
+    scope = {"type": "websocket", "path": "/ws"}
+    await native.dispatch_websocket(scope, receive, send)
+
+    assert sent[0]["type"] == "websocket.accept"
+    assert sent[1]["type"] == "websocket.close"
+    assert sent[1]["code"] == 1003

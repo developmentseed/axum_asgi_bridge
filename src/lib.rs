@@ -81,7 +81,14 @@ async fn send_http_body(send: &Py<PyAny>, body: &[u8], more_body: bool) -> PyRes
     Ok(())
 }
 
-async fn send_ws_event(send: &Py<PyAny>, event_type: &str, text: Option<&str>, bytes: Option<&[u8]>) -> PyResult<()> {
+async fn send_ws_event(
+    send: &Py<PyAny>,
+    event_type: &str,
+    text: Option<&str>,
+    bytes: Option<&[u8]>,
+    code: Option<u16>,
+    reason: Option<&str>,
+) -> PyResult<()> {
     let event: Py<PyAny> = Python::attach(|py| -> PyResult<Py<PyAny>> {
         let dict = PyDict::new(py);
         dict.set_item("type", event_type)?;
@@ -90,6 +97,12 @@ async fn send_ws_event(send: &Py<PyAny>, event_type: &str, text: Option<&str>, b
         }
         if let Some(value) = bytes {
             dict.set_item("bytes", PyBytes::new(py, value))?;
+        }
+        if let Some(value) = code {
+            dict.set_item("code", value)?;
+        }
+        if let Some(value) = reason {
+            dict.set_item("reason", value)?;
         }
         Ok(dict.into_any().unbind())
     })?;
@@ -262,7 +275,7 @@ impl PyAxumAsgiBridge {
                 )));
             }
 
-            send_ws_event(&send, "websocket.accept", None, None).await?;
+            send_ws_event(&send, "websocket.accept", None, None, None, None).await?;
 
             loop {
                 let event = await_receive_event(&receive).await?;
@@ -296,19 +309,66 @@ impl PyAxumAsgiBridge {
                         Ok::<_, PyErr>((text, bytes))
                     })?;
 
+                    if text.is_some() && bytes.is_some() {
+                        send_ws_event(
+                            &send,
+                            "websocket.close",
+                            None,
+                            None,
+                            Some(1003),
+                            Some("websocket.receive must include exactly one of text or bytes"),
+                        )
+                        .await?;
+                        break;
+                    }
+
                     if let Some(text) = text.as_deref() {
-                        send_ws_event(&send, "websocket.send", Some(text), None).await?;
+                        send_ws_event(&send, "websocket.send", Some(text), None, None, None).await?;
                     }
                     if let Some(bytes) = bytes.as_deref() {
-                        send_ws_event(&send, "websocket.send", None, Some(bytes)).await?;
+                        send_ws_event(&send, "websocket.send", None, Some(bytes), None, None).await?;
                     }
                     continue;
                 }
 
                 if event_kind == "websocket.close" {
-                    send_ws_event(&send, "websocket.close", None, None).await?;
+                    let (code, reason): (u16, Option<String>) = Python::attach(|py| {
+                        let event = event.bind(py);
+                        let code = event
+                            .call_method1("get", ("code", 1000))?
+                            .extract::<u16>()
+                            .unwrap_or(1000);
+                        let reason_value = event.call_method1("get", ("reason",))?;
+                        let reason = if reason_value.is_none() {
+                            None
+                        } else {
+                            Some(reason_value.extract::<String>()?)
+                        };
+                        Ok::<_, PyErr>((code, reason))
+                    })?;
+
+                    send_ws_event(
+                        &send,
+                        "websocket.close",
+                        None,
+                        None,
+                        Some(code),
+                        reason.as_deref(),
+                    )
+                    .await?;
                     break;
                 }
+
+                send_ws_event(
+                    &send,
+                    "websocket.close",
+                    None,
+                    None,
+                    Some(1002),
+                    Some(&format!("unsupported websocket event: {event_kind}")),
+                )
+                .await?;
+                break;
             }
             Ok(())
         })
