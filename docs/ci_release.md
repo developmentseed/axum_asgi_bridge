@@ -35,16 +35,16 @@ scripts/check.sh
 
 ## Wheel Build
 
-The `wheels.yml` workflow builds platform wheels for:
+The `wheels.yml` workflow builds wheels and sdist artifacts for:
 
 | Platform | Architectures |
 |---|---|
 | Linux | x86_64, aarch64 |
-| macOS | x86_64, aarch64 (Apple Silicon) |
+| macOS | x86_64, aarch64 |
 | Windows | x86_64 |
 
-Wheels are uploaded as workflow artifacts and can be downloaded from the
-Actions tab.
+Artifacts are uploaded in every tag-triggered run and include one wheel set per
+target plus an sdist archive.
 
 Build wheels locally:
 
@@ -56,14 +56,15 @@ scripts/build_wheels_local.sh
 ## Release Process
 
 1. Update the version in both `Cargo.toml` and `pyproject.toml`.
-2. Tag the release: `git tag v0.1.0 && git push --tags`.
-3. The wheel workflow runs automatically on tags.
-4. Download and verify wheel artifacts.
-5. Publish to PyPI using trusted publishing or an API token:
+2. Publish a GitHub release (tag should match `v*`).
+3. `wheels.yml` builds cross-platform wheels and sdist artifacts.
+4. On release publication, CI publishes Python artifacts to PyPI via trusted publishing.
+5. On release publication, CI publishes the Rust crate to crates.io using `CRATES_IO_TOKEN`.
 
-```bash
-uv run twine upload dist/*.whl
-```
+Required repository configuration:
+
+- Configure PyPI trusted publishing for this repository.
+- Add repository secret `CRATES_IO_TOKEN` with publish permissions.
 
 ## Release Profile
 
