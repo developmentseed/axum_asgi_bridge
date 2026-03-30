@@ -45,3 +45,6 @@ These return cloned bridge instances with the layer applied.
 
 - Middleware support is feature-gated to keep the default build lightweight.
 - `with_trace_http()` requires request logging setup in your Rust runtime.
+- In Python `DelegatePathsMiddleware`, `http` and `websocket` scopes are
+    delegated by path predicate; `lifespan` is forwarded to both delegated and
+    host apps.

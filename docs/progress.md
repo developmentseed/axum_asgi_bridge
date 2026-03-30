@@ -46,11 +46,15 @@ Last updated: 2026-03-26
 - 2026-03-26: Validation checkpoint after websocket/backpressure completion: `cargo test --all-targets`, `cargo test --all-targets --all-features`, `uv run pytest -q` (15 passed), and `uv run mkdocs build --strict` all pass.
 - 2026-03-26: Architectural blocker confirmed for Axum-native websocket upgrades in this embedding mode: `Router::oneshot` request dispatch does not provide Hyper upgrade context (`OnUpgrade` extensions), so extractor-driven Axum websocket routes cannot be fully bridged without a different transport integration strategy.
 - 2026-03-30: Production-readiness/docs alignment pass: added production guide, updated API/README for current runtime behavior, and normalized Rust code comments to concise operational style.
+- 2026-03-30: Steps 1-4 continuation pass: made `dispatch_to_send` the primary HTTP path in Python wrapper regardless of `stream_chunk_size`, with structured-dispatch fallback only.
+- 2026-03-30: Cleanup pass: removed deprecated JSON compatibility entry points (`dispatch_bytes`, `dispatch_raw`, `dispatch_raw_streaming`) and removed stale `JsonDecode` error variant/docs.
+- 2026-03-30: Middleware alignment for step 2: `DelegatePathsMiddleware` now applies `should_delegate(path)` to both `http` and `websocket` scopes; lifespan still forwards to both delegated and host apps.
+- 2026-03-30: Added Python test coverage for websocket delegation through middleware path matching.
 
 ## Outstanding Gaps
 
 - Item 2 Axum-native websocket upgrade integration is still pending; current protocol bridge is Rust-native ASGI websocket echo loop (connect/accept/receive/send/close/disconnect), not route-dispatched via Axum upgrade extractors.
-- Item 1 native backpressure handoff is implemented through `dispatch_to_send`; existing `dispatch_streaming` vector-chunk API remains for compatibility.
+- Item 1 native backpressure handoff is implemented through `dispatch_to_send`; Python ASGI adapter now uses this path whenever available.
 
 ## Repeated Mistakes Guardrail
 

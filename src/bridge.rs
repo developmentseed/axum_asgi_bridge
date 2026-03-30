@@ -12,7 +12,6 @@ use axum::http::StatusCode;
 use axum::response::Response;
 use futures_util::StreamExt;
 use http_body_util::BodyExt;
-use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use tower::ServiceExt;
 
@@ -27,7 +26,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::error::{BridgeError, Result};
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AsgiHttpScope {
     pub method: String,
     pub path: String,
@@ -257,29 +256,6 @@ impl AxumAsgiBridge {
             .oneshot(request)
             .await
             .map_err(|error| BridgeError::Service(error.to_string()))
-    }
-
-    /// Dispatch a request from a JSON-encoded ASGI scope.
-    pub async fn dispatch_raw(&self, scope_json: &str, body: Vec<u8>) -> Result<DispatchResult> {
-        let scope: AsgiHttpScope =
-            serde_json::from_str(scope_json).map_err(|error| BridgeError::JsonDecode {
-                context: "dispatch_raw.scope",
-                message: error.to_string(),
-            })?;
-        self.dispatch_scope(scope, body).await
-    }
-
-    pub async fn dispatch_raw_streaming(
-        &self,
-        scope_json: &str,
-        body: Vec<u8>,
-    ) -> Result<DispatchStreamingResult> {
-        let scope: AsgiHttpScope =
-            serde_json::from_str(scope_json).map_err(|error| BridgeError::JsonDecode {
-                context: "dispatch_raw_streaming.scope",
-                message: error.to_string(),
-            })?;
-        self.dispatch_scope_streaming(scope, body).await
     }
 
     async fn dispatch_scope(&self, scope: AsgiHttpScope, body: Vec<u8>) -> Result<DispatchResult> {

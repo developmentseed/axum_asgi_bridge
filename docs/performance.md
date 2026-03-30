@@ -35,8 +35,8 @@ Python                              Rust
 Python `bytes` to Rust `Vec<u8>` using direct memory operations.
 
 !!! note
-    The `dispatch_raw` method (JSON-based) is still available for callers that
-    already have a JSON scope string, such as test fixtures or external integrations.
+  The JSON scope compatibility path has been removed. The bridge uses
+  structured dispatch as the single supported request path.
 
 ## Body Collection
 

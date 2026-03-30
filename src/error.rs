@@ -2,12 +2,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum BridgeError {
-    #[error("invalid scope JSON ({context}): {message}")]
-    JsonDecode {
-        context: &'static str,
-        message: String,
-    },
-
     #[error("invalid HTTP method: {0}")]
     InvalidMethod(String),
 

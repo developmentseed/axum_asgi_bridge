@@ -20,15 +20,16 @@ ASGI application wrapper around the native Rust bridge. Implements the ASGI
 
 #### `__call__(scope, receive, send)`
 
-Handles an ASGI HTTP request. Collects the request body from `receive`, dispatches
-through the native Rust bridge using zero-JSON structured arguments, and sends the
-response via `send`.
+Handles an ASGI request. Supports `http`, `lifespan`, and `websocket` scopes.
+For `http`, collects the request body from `receive`, dispatches through the
+native Rust bridge using zero-JSON structured arguments, and sends the response
+via `send`.
 
 **Parameters:**
 
 | Name | Type | Description |
 |---|---|---|
-| `scope` | `dict[str, Any]` | ASGI connection scope (must have `type == "http"`) |
+| `scope` | `dict[str, Any]` | ASGI connection scope |
 | `receive` | `Callable` | ASGI receive channel |
 | `send` | `Callable` | ASGI send channel |
 
@@ -134,7 +135,8 @@ app.add_middleware(
 ```
 
 !!! note
-    Non-HTTP scopes (WebSocket, lifespan) are always passed through to the host app.
+    `lifespan` scopes are forwarded to both delegated and host apps.
+    `http` and `websocket` scopes are delegated when `should_delegate(path)` is `True`.
 
 ---
 
@@ -267,11 +269,6 @@ JSON parsing. Used by the Python wrapper on the hot path.
 | `headers` | `Vec<(String, String)>` | Request headers as name/value pairs |
 | `body` | `Vec<u8>` | Request body bytes |
 
-#### `async dispatch_raw(&self, scope_json: &str, body: Vec<u8>) -> Result<DispatchResult>`
-
-Dispatch from a JSON-encoded ASGI scope string. Useful for callers that already
-have JSON (e.g., testing, external integrations).
-
 #### `async dispatch_response(&self, method, path, query_string, headers, body) -> Result<Response>`
 
 Dispatch and return the raw `http::Response` so callers can stream body frames
@@ -317,8 +314,7 @@ pub struct AsgiHttpScope {
 }
 ```
 
-Serializable representation of an ASGI HTTP scope. Used internally by
-`dispatch_raw` for JSON deserialization.
+In-memory representation of an ASGI HTTP scope.
 
 ### `RouteRegistry`
 
@@ -341,7 +337,6 @@ Key methods:
 
 ```rust
 pub enum BridgeError {
-    JsonDecode { context: &'static str, message: String },
     InvalidMethod(String),
     InvalidUri(String),
     InvalidHeaderName(String),

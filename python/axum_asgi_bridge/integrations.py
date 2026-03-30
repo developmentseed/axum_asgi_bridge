@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from typing import Any
 
@@ -27,12 +27,14 @@ class DelegatePathsMiddleware:
         self.should_delegate = should_delegate or (lambda _path: False)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        scope_type = scope.get("type")
+
         if scope.get("type") == "lifespan":
             await self.delegated_app(scope, receive, send)
             await self.app(scope, receive, send)
             return
 
-        if scope.get("type") != "http":
+        if scope_type not in {"http", "websocket"}:
             await self.app(scope, receive, send)
             return
 

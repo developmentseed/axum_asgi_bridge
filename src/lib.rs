@@ -26,7 +26,6 @@ create_exception!(_native, ResponseBodyErrorPy, BridgeErrorPy);
 fn to_py_err(error: BridgeError) -> PyErr {
     let message = error.to_string();
     match error {
-        BridgeError::JsonDecode { .. } => BridgeConfigErrorPy::new_err(message),
         BridgeError::JsonEncode { .. } => BridgeConfigErrorPy::new_err(message),
         BridgeError::InvalidMethod(_)
         | BridgeError::InvalidUri(_)
@@ -154,25 +153,6 @@ impl PyAxumAsgiBridge {
                 .await
                 .map_err(to_py_err)?;
             Ok((result.status, result.headers, result.body))
-        })
-    }
-
-    /// Dispatch from a JSON scope payload (compatibility path).
-    fn dispatch_bytes<'py>(
-        &self,
-        py: Python<'py>,
-        scope_json: String,
-        body: Vec<u8>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let inner = self.inner.clone();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let result = inner
-                .dispatch_raw(&scope_json, body)
-                .await
-                .map_err(to_py_err)?;
-            let headers_json = serde_json::to_string(&result.headers)
-                .map_err(|e| BridgeConfigErrorPy::new_err(e.to_string()))?;
-            Ok((result.status, headers_json, result.body))
         })
     }
 

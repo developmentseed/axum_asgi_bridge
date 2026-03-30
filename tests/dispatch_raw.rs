@@ -7,7 +7,7 @@ use serde_json::json;
 use utoipa::OpenApi;
 
 #[tokio::test]
-async fn dispatch_raw_returns_bytes() {
+async fn dispatch_structured_returns_bytes() {
     async fn handler() -> Json<serde_json::Value> {
         Json(json!({"ok": true}))
     }
@@ -15,15 +15,8 @@ async fn dispatch_raw_returns_bytes() {
     let router = Router::new().route("/", get(handler));
     let bridge = AxumAsgiBridge::new(router).with_route_patterns(["/".to_string()]);
 
-    let scope = json!({
-        "method": "GET",
-        "path": "/",
-        "query_string": "",
-        "headers": []
-    });
-
     let result = bridge
-        .dispatch_raw(&scope.to_string(), Vec::new())
+        .dispatch("GET".into(), "/".into(), String::new(), vec![], Vec::new())
         .await
         .expect("dispatch succeeds");
 
@@ -92,15 +85,8 @@ async fn middleware_builders_dispatch() {
         .with_trace_http()
         .with_route_patterns(["/".to_string()]);
 
-    let scope = json!({
-        "method": "GET",
-        "path": "/",
-        "query_string": "",
-        "headers": []
-    });
-
     let result = bridge
-        .dispatch_raw(&scope.to_string(), Vec::new())
+        .dispatch("GET".into(), "/".into(), String::new(), vec![], Vec::new())
         .await
         .expect("dispatch succeeds");
     assert_eq!(result.status, 200);

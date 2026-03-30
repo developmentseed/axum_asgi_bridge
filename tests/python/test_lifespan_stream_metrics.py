@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from axum_asgi_bridge import AxumAsgiApp, install_lifespan
+from axum_asgi_bridge import AxumAsgiApp, DelegatePathsMiddleware, install_lifespan
 from axum_asgi_bridge._native import demo_app as _demo_native
 from fastapi import FastAPI
 
@@ -18,11 +18,6 @@ class _MockNative:
 
     async def on_shutdown(self):
         self.stopped = True
-
-
-class _MockStreamingNative(_MockNative):
-    async def dispatch_streaming(self, method, path, query_string, headers, body):
-        return 200, [("content-type", "text/plain")], [b"ab", b"cd", b"ef"]
 
 
 class _MockWebSocketNative(_MockNative):
@@ -130,30 +125,6 @@ async def test_request_done_hook_receives_metrics_payload() -> None:
     assert captured["duration_s"] >= 0
 
 
-async def test_native_streaming_path_preserves_chunk_boundaries() -> None:
-    native = _MockStreamingNative()
-    app = AxumAsgiApp(native)
-    sent = []
-
-    async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
-
-    async def send(event):
-        sent.append(event)
-
-    scope = {
-        "type": "http",
-        "method": "GET",
-        "path": "/",
-        "query_string": b"",
-        "headers": [],
-    }
-    await app(scope, receive, send)
-
-    body_events = [event for event in sent if event["type"] == "http.response.body"]
-    assert [event["body"] for event in body_events] == [b"ab", b"cd", b"ef"]
-
-
 async def test_websocket_calls_native_dispatch_when_available() -> None:
     native = _MockWebSocketNative()
     app = AxumAsgiApp(native)
@@ -166,6 +137,34 @@ async def test_websocket_calls_native_dispatch_when_available() -> None:
 
     await app({"type": "websocket", "path": "/ws"}, receive, send)
     assert native.websocket_called is True
+
+
+async def test_middleware_can_delegate_websocket_by_path() -> None:
+    delegated_calls = []
+    host_calls = []
+
+    async def host_app(scope, _receive, _send):
+        host_calls.append(scope.get("path"))
+
+    async def delegated_app(scope, _receive, _send):
+        delegated_calls.append(scope.get("path"))
+
+    middleware = DelegatePathsMiddleware(
+        host_app,
+        delegated_app,
+        should_delegate=lambda path: path == "/ws",
+    )
+
+    async def receive():
+        return {"type": "websocket.connect"}
+
+    async def send(_event):
+        return None
+
+    await middleware({"type": "websocket", "path": "/ws"}, receive, send)
+
+    assert delegated_calls == ["/ws"]
+    assert host_calls == []
 
 
 async def test_install_lifespan_invokes_native_hooks() -> None:
