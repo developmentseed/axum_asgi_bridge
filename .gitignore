@@ -8,3 +8,7 @@ htmlcov/
 site/
 __pycache__/
 *.pyc
+.plans/*
+!.plans/README.md
+!.plans/roadmap.md
+!.plans/progress.md

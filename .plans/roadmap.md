@@ -589,7 +589,7 @@ class BridgeConfigError(BridgeError):
 
 class InvalidRequestError(BridgeError):
     """Malformed request — invalid method, URI, or header."""
-    
+
 class ResponseBodyError(BridgeError):
     """Error reading the Axum response body."""
 ```
