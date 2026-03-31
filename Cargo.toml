@@ -11,7 +11,8 @@ name = "axum_asgi_bridge"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = []
+default = ["extension-module"]
+extension-module = ["pyo3/extension-module"]
 middleware = ["dep:tower-http"]
 utoipa = ["dep:utoipa", "dep:utoipa-axum"]
 observability = ["dep:tracing", "dep:tracing-subscriber", "middleware"]
@@ -20,7 +21,7 @@ observability = ["dep:tracing", "dep:tracing-subscriber", "middleware"]
 axum = "0.8"
 futures-util = "0.3"
 http-body-util = "0.1"
-pyo3 = { version = "0.28", features = ["extension-module"] }
+pyo3 = { version = "0.28" }
 pyo3-async-runtimes = { version = "0.28", features = ["tokio", "tokio-runtime"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
